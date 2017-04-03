@@ -330,7 +330,9 @@ public class SugiliteAccessibilityService extends AccessibilityService {
                             }
                         }
                         //start the popup activity
+                        Log.d(TAG, "before calling recodingPopUpDialg,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,");
                         RecordingPopUpDialog recordingPopUpDialog = new RecordingPopUpDialog(sugiliteData, getApplicationContext(), generateFeaturePack(event, rootNode, screenshot, availableAlternativeNodes), sharedPreferences, LayoutInflater.from(getApplicationContext()), RecordingPopUpDialog.TRIGGERED_BY_NEW_EVENT, availableAlternatives);
+                        Log.d(TAG,"after calling recordingPopUpDialog,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,");
                         sugiliteData.recordingPopupDialogQueue.add(recordingPopUpDialog);
                         if(!sugiliteData.recordingPopupDialogQueue.isEmpty() && sugiliteData.hasRecordingPopupActive == false) {
                             sugiliteData.hasRecordingPopupActive = true;
@@ -455,6 +457,7 @@ public class SugiliteAccessibilityService extends AccessibilityService {
                 automatorThread = new Thread(new Runnable() {
                     @Override
                     public void run() {
+                        Log.d(TAG, "before calling automator.handleLiveEvent");
                         automator.handleLiveEvent(rootNode, getApplicationContext());
                         automatorThread = null;
                     }

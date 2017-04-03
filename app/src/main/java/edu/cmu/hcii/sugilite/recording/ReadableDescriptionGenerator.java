@@ -119,13 +119,17 @@ public class ReadableDescriptionGenerator {
 
             if(((SugiliteOperationBlock) block).getElementMatchingFilter().getPackageName() != null)
                 message += "in " + setColor(getReadableName(((SugiliteOperationBlock) block).getElementMatchingFilter().getPackageName()), "#ff00ff") + " ";
+
+            // add in the crucial step part
+            if (operation.getIsCrucial()) {
+                message += setColor("(Crucial Step)", "#ff0000");
+            }
+
             return message;
         }
         else if (block instanceof SugiliteSpecialOperationBlock){
             return "<b> SPECIAL OPERATION " + setColor(((SugiliteSpecialOperationBlock) block).getDescription(), "#bc002f") + "</b>";
         }
-
-
 
         return "NULL";
     }

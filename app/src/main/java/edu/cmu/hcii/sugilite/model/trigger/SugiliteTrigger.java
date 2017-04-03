@@ -32,6 +32,7 @@ public class SugiliteTrigger {
     public void setAppPackageName(String appPackageName){
         this.appPackageName = appPackageName;
     }
+
     public void setType(int type){
         this.type = type;
     }

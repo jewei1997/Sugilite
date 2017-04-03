@@ -4,9 +4,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import edu.cmu.hcii.sugilite.automation.ServiceStatusManager;
-import edu.cmu.hcii.sugilite.model.block.UIElementMatchingFilter;
-
 /**
  * @author toby
  * @date 6/24/16
@@ -14,7 +11,8 @@ import edu.cmu.hcii.sugilite.model.block.UIElementMatchingFilter;
  */
 public class UIElementFeatureRecommender {
 
-    private String packageName, className, text, contentDescription, viewId, boundsInParent, boundsInScreen;
+    // new code
+    private String packageName, className, text, contentDescription, viewId, boundsInParent, boundsInScreen, crucialStep;
     private String scriptName;
     private boolean isEditable;
     private long time;
@@ -22,6 +20,7 @@ public class UIElementFeatureRecommender {
     private Set<Map.Entry<String, String>> allParentFeatures = new HashSet<>();
     private Set<Map.Entry<String, String>> allChildFeatures = new HashSet<>();
 
+    // new code
     public UIElementFeatureRecommender(String packageName, String className, String text, String contentDescription, String viewId, String boundsInParent, String boundsInScreen, String scriptName,
                                         boolean isEditable, long time, int eventType, Set<Map.Entry<String, String>> allParentFeatures, Set<Map.Entry<String, String>> allChildFeatures){
         this.packageName = packageName;
@@ -31,6 +30,8 @@ public class UIElementFeatureRecommender {
         this.viewId = viewId;
         this.boundsInParent = boundsInParent;
         this.boundsInScreen = boundsInScreen;
+        // new code
+        //this.crucialStep = crucialStep;
         this.scriptName = scriptName;
         this.isEditable = isEditable;
         this.time = time;
@@ -106,10 +107,4 @@ public class UIElementFeatureRecommender {
         }
         return retSet;
     }
-
-
-
-
-
-
 }

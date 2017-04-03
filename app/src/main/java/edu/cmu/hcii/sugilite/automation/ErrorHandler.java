@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.text.Html;
+import android.util.Log;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Toast;
@@ -41,8 +42,11 @@ public class ErrorHandler {
     private Set<String> excludedPackageFromWrongPackage;
     private SugiliteScriptDao sugiliteScriptDao;
     private String[] excludedPackageSet = {"com.google.android.inputmethod.pinyin", "com.inMind.inMindAgent", "com.google.android.inputmethod.latin"};
+    protected static final String TAG = ErrorHandler.class.getSimpleName();
 
-    static final private int LAST_WINDOW_CHANGE_TIMEOUT = 20000, LAST_SUCCESSFUL_OPERATION = 40000;
+    // Jeremy changed this!
+    static final private int LAST_WINDOW_CHANGE_TIMEOUT = 20000; //20000
+    static final private int LAST_SUCCESSFUL_OPERATION = 40000;
 
     public ErrorHandler(Context context, SugiliteData sugiliteData, SharedPreferences sharedPreferences){
         this.applicationContext = context;
@@ -145,6 +149,7 @@ public class ErrorHandler {
     private void handleError(String errorMsg){
         //TODO: seprate the error handling dialog out
         //pause the execution when the duck is clicked
+        Log.d(TAG, "in handleError()");
         final Queue<SugiliteBlock> storedQueue =  sugiliteData.getCopyOfInstructionQueue();
         sugiliteData.clearInstructionQueue();
 

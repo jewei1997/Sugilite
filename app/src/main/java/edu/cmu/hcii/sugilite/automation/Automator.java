@@ -6,12 +6,22 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.health.SystemHealthManager;
+import android.speech.tts.TextToSpeech;
 import android.text.Html;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.Toast;
 
+import com.opencsv.CSVWriter;
+
+import java.io.File;
+import java.io.FileWriter;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -20,10 +30,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import edu.cmu.hcii.sugilite.Const;
+import de.siegmar.fastcsv.writer.CsvAppender;
 import edu.cmu.hcii.sugilite.SugiliteAccessibilityService;
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.model.block.SerializableNodeInfo;
+import edu.cmu.hcii.sugilite.model.block.SugiliteAvailableFeaturePack;
 import edu.cmu.hcii.sugilite.model.block.SugiliteBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteErrorHandlingForkBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteOperationBlock;
@@ -39,10 +51,13 @@ import edu.cmu.hcii.sugilite.model.variable.VariableHelper;
 import edu.cmu.hcii.sugilite.ui.BoundingBoxManager;
 import edu.cmu.hcii.sugilite.ui.StatusIconManager;
 
-import android.speech.tts.TextToSpeech;
-
+import static android.R.attr.entries;
 import static edu.cmu.hcii.sugilite.Const.DELAY;
 import static edu.cmu.hcii.sugilite.Const.HOME_SCREEN_PACKAGE_NAMES;
+
+import de.siegmar.fastcsv.writer.CsvWriter;
+
+
 
 
 /**
@@ -60,6 +75,7 @@ public class Automator {
     private SharedPreferences sharedPreferences;
     private boolean ttsReady = false;
     static private Set<String> homeScreenPackageNameSet;
+    protected static final String TAG = Automator.class.getSimpleName();
 
     public Automator(SugiliteData sugiliteData, SugiliteAccessibilityService context, StatusIconManager statusIconManager, SharedPreferences sharedPreferences){
         this.sugiliteData = sugiliteData;
@@ -80,6 +96,7 @@ public class Automator {
 
 
     public boolean handleLiveEvent (AccessibilityNodeInfo rootNode, Context context){
+        Log.d(TAG , "inside Automator.handleLiveEvent");
         //TODO: fix the highlighting for matched element
         if(sugiliteData.getInstructionQueueSize() == 0 || rootNode == null)
             return false;
@@ -202,8 +219,6 @@ public class Automator {
         }
 
 
-
-
         if(filteredNodes.size() == 0)
             return false;
 
@@ -218,6 +233,7 @@ public class Automator {
             catch (Exception e){
                 // do nothing
             }
+
             boolean retVal = performAction(node, operationBlock);
             if(retVal) {
                 /*
@@ -245,6 +261,96 @@ public class Automator {
     }
 
     public boolean performAction(AccessibilityNodeInfo node, SugiliteOperationBlock block) {
+
+        Log.d(TAG, "in perform action!");
+
+        if (block.getOperation().getIsCrucial()) {
+            // we want a pop up dialog box asking the user what they would like to do next
+            final AlertDialog.Builder builder1 = new AlertDialog.Builder(context);
+            builder1.setMessage("Sugilite has reached a crucial step. How would you like to proceed?")
+                    .setPositiveButton(
+                            "Continue",
+                            new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int id) {
+                                    dialog.cancel();
+                                }
+                            })
+                    .setNeutralButton(
+                            "Pause",
+                            new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int id) {
+                                    // If the user clicks "No", sugilite will be paused until the user clicks resume
+                                    sugiliteData.setResumeQueue(sugiliteData.getCopyOfInstructionQueue());
+                                    sugiliteData.clearInstructionQueue();
+                                    Toast.makeText(sugiliteData, "Sugilite has paused, click on the Duck > Resume Execution when you want to resume", Toast.LENGTH_LONG).show();
+                                    Log.d(TAG, "pausing in performAction");
+                                    sugiliteData.setIsCrucialStepPaused(true);
+                                    dialog.cancel();
+                                }
+                            })
+                    .setNegativeButton(
+                            "Abort",
+                            new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface dialog, int id) {
+                                    sugiliteData.clearInstructionQueue();
+                                    Toast.makeText(sugiliteData, "Execution has been aborted", Toast.LENGTH_LONG).show();
+                                    dialog.cancel();
+                                }
+                            }
+                    )
+                    .setTitle("Crucial Step!");
+
+            serviceContext.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    AlertDialog dialog = builder1.create();
+                    dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_SYSTEM_ALERT);
+                    dialog.show();
+                }
+            });
+
+        }
+
+
+        SugiliteAvailableFeaturePack featurePack = block.getFeaturePack();
+        try {
+            File storagePath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+            CSVWriter writer = new CSVWriter(new FileWriter(storagePath.getAbsolutePath() + "/foo.csv", true), '\t');
+            File file = new File(storagePath.getAbsolutePath() + "/foo.csv");
+            System.out.println(file.getAbsolutePath());
+
+            // feed in your array (or convert your data to an array)
+            // str1.toLowerCase().contains(str2.toLowerCase());
+
+
+            // we are just going to check for keywords for automatic crucial step detection.
+            String[] keywords = {"remove", "delete", "call", "dial", "commit", "like", "submit", "post", "send", "buy", "start"};
+
+            for (String word : keywords) {
+                if (featurePack.contentDescription.toLowerCase().contains(word)) {
+                    // make the step crucial
+
+                    break;
+                }
+            }
+
+            String line = "";
+            line += block.getOperation().getIsCrucial() + ",";
+            line += featurePack.packageName + ",";
+            line += featurePack.className + ",";
+            line += featurePack.text + ",";
+            line += featurePack.contentDescription + ",";
+            line += featurePack.viewId + ",";
+            line += featurePack.boundsInParent + ",";
+            line += featurePack.boundsInScreen + ",";
+            ArrayList<SerializableNodeInfo> children = featurePack.childNodes;
+
+            String[] entries = line.split(",");
+            writer.writeNext(entries);
+            writer.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         AccessibilityNodeInfo nodeToAction = node;
         if(block.getOperation().getOperationType() == SugiliteOperation.CLICK){
@@ -340,6 +446,10 @@ public class Automator {
                     return false;
             }
         }
+
+
+
+
         return false;
     }
 

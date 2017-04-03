@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+DEPRECATED!
+-->
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent"
     android:layout_height="match_parent" android:paddingLeft="@dimen/activity_horizontal_margin"
@@ -123,6 +126,8 @@
                     android:id="@+id/boundsInParent"
                     android:onClick="entryOnSelect" />
             </TableRow>
+
+
 
             <TableRow
                 android:layout_width="match_parent"

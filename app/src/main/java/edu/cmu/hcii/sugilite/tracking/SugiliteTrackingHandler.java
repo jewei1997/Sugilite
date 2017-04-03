@@ -2,15 +2,22 @@ package edu.cmu.hcii.sugilite.tracking;
 
 import android.content.Context;
 import android.graphics.Rect;
+import android.os.Environment;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
+import com.opencsv.CSVWriter;
+
+import java.io.File;
+import java.io.FileWriter;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
 import edu.cmu.hcii.sugilite.dao.SugiliteTrackingDao;
+import edu.cmu.hcii.sugilite.model.block.SerializableNodeInfo;
 import edu.cmu.hcii.sugilite.model.block.SugiliteAvailableFeaturePack;
 import edu.cmu.hcii.sugilite.model.block.SugiliteOperationBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteStartingBlock;
@@ -80,6 +87,50 @@ public class SugiliteTrackingHandler {
         filter.setIsClickable(sourceNode.isClickable());
 
         operationBlock.setElementMatchingFilter(filter);
+
+        if (event.getEventType() == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+
+            // start - crucial step data collection code
+
+            System.out.println("In Sugilite Tracker Handler!");
+
+            // featurePack is passed in as a parameter to handler
+
+            try {
+                File storagePath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                CSVWriter writer = new CSVWriter(new FileWriter(storagePath.getAbsolutePath() + "/foo.csv", true), '\t');
+
+                String line = "";
+                line += featurePack.packageName + ",";
+                line += featurePack.className + ",";
+                line += featurePack.text + ",";
+                line += featurePack.contentDescription;
+
+
+                /*
+
+                ArrayList<SerializableNodeInfo> children = featurePack.childNodes;
+
+                for (SerializableNodeInfo node : children) {
+                    line += node.contentDescription + ",";
+                    line += node.text;
+                }
+
+                */
+
+                
+
+                String[] entries = line.split(",");
+                writer.writeNext(entries);
+                writer.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            // end - crucial step data collection code
+        }
+
+
         save(operationBlock);
     }
 

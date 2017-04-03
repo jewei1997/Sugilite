@@ -9,6 +9,7 @@ import android.graphics.Rect;
 import android.text.Editable;
 import android.text.Html;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.ContextThemeWrapper;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -92,12 +93,11 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
     private AlternativeNodesFilterTester filterTester;
     private String childText = "";
     private String scriptName;
-
-
-
+    private static final String TAG = RecordingPopUpDialog.class.getSimpleName();
 
     private Spinner actionSpinner, targetTypeSpinner, withInAppSpinner, readoutParameterSpinner, loadVariableParameterSpinner;
-    private CheckBox textCheckbox, contentDescriptionCheckbox, viewIdCheckbox, boundsInParentCheckbox, boundsInScreenCheckbox;
+    //my new code - added crucialStepCheckbox
+    private CheckBox textCheckbox, contentDescriptionCheckbox, viewIdCheckbox, boundsInParentCheckbox, boundsInScreenCheckbox, crucialStepCheckbox;
     private EditText setTextEditText, loadVariableVariableDefaultValue, loadVariableVariableName;
     private String textContent, contentDescriptionContent, viewIdContent;
     private LinearLayout actionParameterSection, actionSection, readoutParameterSection, loadVariableParameterSection;
@@ -116,6 +116,15 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
     public static final int TRIGGERED_BY_EDIT = 2;
 
     public RecordingPopUpDialog(final SugiliteData sugiliteData, Context applicationContext, SugiliteAvailableFeaturePack featurePack, SharedPreferences sharedPreferences, LayoutInflater inflater, int triggerMode, Set<Map.Entry<String, String>> alternativeLabels){
+        // just trying to determine what calls RecodingPopUpDialog - edu.cmu.hcii.sugilite.SugiliteAccessibilityService.onAccessibilityEvent(SugiliteAccessibilityService.java:334)
+        try {
+            if (true) {
+                throw new Exception();
+            }
+        }
+        catch(Exception e) {
+            e.printStackTrace(System.out);
+        }
         this.sharedPreferences = sharedPreferences;
         this.sugiliteData = sugiliteData;
         this.featurePack = featurePack;
@@ -151,8 +160,6 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         //fetch the data capsuled in the intent
         //TODO: refactor so the service passes in a feature pack instead
         setupSelections();
-
-
     }
 
     //THIS CONSTRUCTOR IS USED FOR EDITING ONLY!
@@ -266,6 +273,10 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
             if(boundsInScreenCheckbox != null){
                 boundsInScreenCheckbox.setVisibility(View.GONE);
             }
+            // my new code
+            if(crucialStepCheckbox != null) {
+                crucialStepCheckbox.setVisibility(View.GONE);
+            }
         }
 
         //change the button to allow the user to view more options (see the full popup)
@@ -286,6 +297,10 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
                 if (boundsInScreenCheckbox != null) {
                     boundsInScreenCheckbox.setVisibility(View.VISIBLE);
                 }
+                //my new code
+                if (crucialStepCheckbox != null) {
+                    crucialStepCheckbox.setVisibility(View.VISIBLE);
+                }
                 editButton.setText("Recording Off");
                 editButton.setOnClickListener(new View.OnClickListener() {
                     @Override
@@ -302,6 +317,7 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
     public void finishActivity(View view){
         dialog.dismiss();
     }
+
     public void turnOffRecording(View view)
     {
         SharedPreferences.Editor prefEditor = sharedPreferences.edit();
@@ -371,6 +387,7 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         };
         if(view == null) {
             //the main panel is skipped
+            Log.d(TAG, "main panel is skipped");
             builder.setTitle("Save Operation Confirmation").setMessage(Html.fromHtml("Are you sure you want to record the operation: " + readableDescriptionGenerator.generateReadableDescription(operationBlock)));
             builder.setPositiveButton("Yes", onClickListener)
                     .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
@@ -457,6 +474,8 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
     }
 
     private void setupSelections(){
+
+        Log.d(TAG, "in setup selections");
 
         //set up on click listeners
         ((TextView)dialogRootView.findViewById(R.id.parameterLink)).setText(Html.fromHtml("<p><u>Set as a parameter</u></p>"));
@@ -734,6 +753,24 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         identifierCheckboxMap.put("boundsInScreen", boundsInScreenCheckbox);
 
 
+        // adding the crucial step checkbox to the recording popup dialog
+
+        crucialStepCheckbox = new CheckBox(dialogRootView.getContext());
+        crucialStepCheckbox.setText(Html.fromHtml("Crucial Step"));
+        crucialStepCheckbox.setChecked(crucialStepCheckbox.isChecked());
+        identifierLayout.addView(crucialStepCheckbox, layoutParams);
+
+        // Automatic crucial step detection
+        // we are just going to check for keywords for automatic crucial step detection.
+        String[] keywords = {"remove", "delete", "call", "commit", "like", "submit", "post", "send", "buy", "start"};
+
+        for (String word : keywords) {
+            if (featurePack.contentDescription.toLowerCase().contains(word)) {
+                // make the step crucial
+                crucialStepCheckbox.setChecked(true);
+                break;
+            }
+        }
 
         //set up action
         List<String> actionSpinnerItems = new ArrayList<>();
@@ -1002,8 +1039,6 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         //((TextView)findViewById(R.id.time)).setText("Event Time: " + dateFormat.format(c.getTime()) + "\nRecording script: " + sharedPreferences.getString("scriptName", "NULL"));
         //((TextView)findViewById(R.id.filteredNodeCount)).setText(generateFilterCount());
         ((TextView) dialogRootView.findViewById(R.id.previewContent)).setText(Html.fromHtml(readableDescriptionGenerator.generateReadableDescription(generateBlock())));
-
-
     }
 
     private void refreshAfterChange(){
@@ -1375,6 +1410,9 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
             }
             */
         }
+
+        // for manual crucial step detection
+        sugiliteOperation.setIsCrucial(crucialStepCheckbox.isChecked());
 
         final SugiliteOperationBlock operationBlock = new SugiliteOperationBlock();
         operationBlock.setOperation(sugiliteOperation);

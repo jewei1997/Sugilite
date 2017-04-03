@@ -11,6 +11,7 @@ import android.graphics.Rect;
 import android.net.Uri;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -68,6 +69,7 @@ public class StatusIconManager {
     private VariableHelper variableHelper;
     private LayoutInflater layoutInflater;
     private Random random;
+    protected static final String TAG = StatusIconManager.class.getSimpleName();
 
     public StatusIconManager(Context context, SugiliteData sugiliteData, SharedPreferences sharedPreferences){
         this.context = context;
@@ -89,6 +91,7 @@ public class StatusIconManager {
      * add the status icon using the context specified in the class
      */
     public void addStatusIcon(){
+        Log.d(TAG, "in addStatusIcon()");
         statusIcon = new ImageView(context);
         statusIcon.setImageResource(R.mipmap.ic_launcher);
         params = new WindowManager.LayoutParams(
@@ -155,35 +158,41 @@ public class StatusIconManager {
         }
         int offset = random.nextInt(5);
 
+
         try{
             if(statusIcon != null){
                 boolean recordingInProcess = sharedPreferences.getBoolean("recording_in_process", false);
                 boolean trackingInProcess = sharedPreferences.getBoolean("tracking_in_process", false);
                 boolean broadcastingInProcess = sharedPreferences.getBoolean("broadcasting_enabled", false);
-                if(recordingInProcess)
+                /*if (sugiliteData.getIsCrucialStepPaused()) {
+                    statusIcon.setImageResource(R.mipmap.duck_icon_paused2);
+                }
+                else {*/
+                if (recordingInProcess)
                     statusIcon.setImageResource(R.mipmap.duck_icon_recording);
-                else if(sugiliteData.getInstructionQueueSize() > 0) {
+                else if (sugiliteData.getInstructionQueueSize() > 0) {
                     statusIcon.setImageResource(R.mipmap.duck_icon_playing);
-                    if(matched) {
-                        params.x = (rect.centerX() > 150 ? rect.centerX()  - 150 : 0);
-                        params.y = (rect.centerY() > 150 ? rect.centerY()  - 150 : 0);
+                    if (matched) {
+                        params.x = (rect.centerX() > 150 ? rect.centerX() - 150 : 0);
+                        params.y = (rect.centerY() > 150 ? rect.centerY() - 150 : 0);
                     }
-                    if(offset % 2 == 0) {
+                    if (offset % 2 == 0) {
                         params.x = params.x + offset;
                         params.y = params.y - offset;
-                    }
-                    else {
+                    } else {
                         params.x = params.x - offset;
                         params.y = params.y + offset;
                     }
 
                     windowManager.updateViewLayout(statusIcon, params);
-                }
-                else if(trackingInProcess || (broadcastingInProcess && sugiliteData.registeredBroadcastingListener.size() > 0)){
+                } else if (trackingInProcess || (broadcastingInProcess && sugiliteData.registeredBroadcastingListener.size() > 0)) {
                     statusIcon.setImageResource(R.mipmap.duck_icon_spying);
-                }
-                else
+                } else if (sugiliteData.getIsCrucialStepPaused()) {
+                    statusIcon.setImageResource(R.mipmap.duck_icon_paused2);
+                } else {
                     statusIcon.setImageResource(R.mipmap.ic_launcher);
+                }
+                //}
 
             }
 
@@ -257,6 +266,8 @@ public class StatusIconManager {
                     if(runningInProgress)
                         sugiliteData.clearInstructionQueue();
 
+                    // get whether the app is paused due to a crucial step
+                    boolean isCrucialStepPaused = sugiliteData.getIsCrucialStepPaused();
 
                     List<String> operationList = new ArrayList<>();
                     if(runningInProgress) {
@@ -278,6 +289,11 @@ public class StatusIconManager {
                             operationList.add("End Recording");
                         }
                         else{
+                            // Resume from crucial step
+                            Log.d(TAG, "isCrucialStepPaused = " + isCrucialStepPaused);
+                            if (isCrucialStepPaused) {
+                                operationList.add("Resume Execution");
+                            }
                             operationList.add("View Last Recording");
                             operationList.add("Resume Last Recording");
                             operationList.add("New Recording");
@@ -296,6 +312,16 @@ public class StatusIconManager {
                                     scriptListIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                                     context.startActivity(scriptListIntent);
                                     Toast.makeText(context, "view script list", Toast.LENGTH_SHORT).show();
+                                    break;
+                                case "Resume Execution":
+                                    sugiliteData.setIsCrucialStepPaused(false);
+                                    if (sugiliteData.getResumeQueue() != null) {
+                                        sugiliteData.addInstructions(sugiliteData.getResumeQueue());
+                                        sugiliteData.setResumeQueue(null);
+                                    } else {
+                                        Log.d(TAG, "Should never get here! User wanted to resume recording from crucial step, " +
+                                                "but there was no instruction queue to resume to. Invariant was broken! ");
+                                    }
                                     break;
                                 //bring the user to the script list activity
                                 case "View Last Recording":
@@ -318,11 +344,13 @@ public class StatusIconManager {
                                         sugiliteData.sendCallbackMsg(Const.FINISHED_RECORDING, jsonProcessor.scriptToJson(sugiliteData.getScriptHead()), sugiliteData.callbackString);
                                     }
                                     Toast.makeText(context, "end recording", Toast.LENGTH_SHORT).show();
+                                    sugiliteData.setIsCrucialStepPaused(false);
                                     break;
                                 case "New Recording":
                                     //create a new script
                                     NewScriptDialog newScriptDialog = new NewScriptDialog(v.getContext(), sugiliteScriptDao, serviceStatusManager, sharedPreferences, sugiliteData, true, null, null);
                                     newScriptDialog.show();
+                                    sugiliteData.setIsCrucialStepPaused(false);
                                     break;
                                 case "Resume Last Recording":
                                     //resume the recording of an existing script
@@ -331,6 +359,7 @@ public class StatusIconManager {
                                     prefEditor2.putBoolean("recording_in_process", true);
                                     prefEditor2.commit();
                                     Toast.makeText(context, "resume recording", Toast.LENGTH_SHORT).show();
+                                    sugiliteData.setIsCrucialStepPaused(false);
                                     break;
                                 case "Quit Sugilite":
                                     Toast.makeText(context, "quit sugilite", Toast.LENGTH_SHORT).show();
@@ -339,6 +368,7 @@ public class StatusIconManager {
                                     } catch (Exception e) {
                                         e.printStackTrace();
                                     }
+                                    sugiliteData.setIsCrucialStepPaused(false);
                                     break;
                                 case "Clear Instruction Queue":
                                     sugiliteData.clearInstructionQueue();
@@ -346,6 +376,7 @@ public class StatusIconManager {
                                     break;
                                 case "Resume Running":
                                     dialog.dismiss();
+                                    sugiliteData.setIsCrucialStepPaused(false);
                                     break;
                                 case "Add GO_HOME Operation Block":
                                     //insert a GO_HOME opeartion block AND go home

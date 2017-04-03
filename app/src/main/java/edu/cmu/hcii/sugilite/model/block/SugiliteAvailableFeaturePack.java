@@ -1,14 +1,10 @@
 package edu.cmu.hcii.sugilite.model.block;
 
-import android.view.accessibility.AccessibilityNodeInfo;
-
 import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
-
-import edu.cmu.hcii.sugilite.model.AccessibilityNodeInfoList;
 
 /**
  * Created by toby on 6/28/16.
@@ -41,7 +37,8 @@ public class SugiliteAvailableFeaturePack implements Serializable{
         else
             this.alternativeTextList = new HashSet<>();
     }
-    public String packageName, className, text, contentDescription, viewId, boundsInParent, boundsInScreen;
+    // new code
+    public String packageName, className, text, contentDescription, viewId, boundsInParent, boundsInScreen, crucialStep;
     public boolean isEditable;
     public long time;
     public int eventType;

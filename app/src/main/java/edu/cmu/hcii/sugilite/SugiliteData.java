@@ -50,6 +50,9 @@ public class SugiliteData extends Application {
     public ErrorHandler errorHandler = null;
     public String trackingName = "default";
     private boolean startRecordingWhenFinishExecuting = false;
+    // for resuming from a crucial step
+    private boolean isCrucialStepPaused = false;
+    private Queue<SugiliteBlock> resumeQueue = null;
 
     public Queue<AbstractSugiliteDialog> recordingPopupDialogQueue = new ArrayDeque<>();
     public boolean hasRecordingPopupActive = false;
@@ -114,6 +117,26 @@ public class SugiliteData extends Application {
     public void setCurrentTrackingBlock(SugiliteBlock currentTrackingBlock){
         this.currentTrackingBlock = currentTrackingBlock;
     }
+
+    // Methods for resuming from a crucial step
+
+    public void setIsCrucialStepPaused(boolean isCrucialStepPaused) {
+        this.isCrucialStepPaused = isCrucialStepPaused;
+    }
+
+    public boolean getIsCrucialStepPaused () {
+        return isCrucialStepPaused;
+    }
+
+    //private Queue<SugiliteBlock> resumeQueue = null;
+    public void setResumeQueue(Queue<SugiliteBlock> resumeQueue) {
+        this.resumeQueue = resumeQueue;
+    }
+
+    public Queue<SugiliteBlock> getResumeQueue() {
+        return resumeQueue;
+    }
+
     public void addInstruction(SugiliteBlock block){
         if(block == null) {
             //note: nullable -> see Automator.addNextBlockToQueue

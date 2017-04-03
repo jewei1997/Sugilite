@@ -3,7 +3,7 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion 24
-    buildToolsVersion "24.0.2"
+    buildToolsVersion '25.0.0'
 
     defaultConfig {
         applicationId "edu.cmu.hcii.sugilite"
@@ -44,6 +44,8 @@ configurations {
 }
 
 dependencies {
+    compile 'com.opencsv:opencsv:3.9'
+    compile 'de.siegmar:fastcsv:1.0.1'  //csv writer
     compile fileTree(include: ['*.jar'], dir: 'libs')
     testCompile 'junit:junit:4.12'
     compile 'com.android.support:appcompat-v7:24.1.1'
