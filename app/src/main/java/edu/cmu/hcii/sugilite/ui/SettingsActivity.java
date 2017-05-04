@@ -18,6 +18,7 @@ import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceActivity;
 import android.preference.SwitchPreference;
+import android.support.v4.app.ListFragment;
 import android.support.v7.app.ActionBar;
 import android.preference.PreferenceFragment;
 import android.preference.PreferenceManager;
@@ -41,9 +42,13 @@ import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.automation.ServiceStatusManager;
 import edu.cmu.hcii.sugilite.communication.SugiliteBlockJSONProcessor;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptFileDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptSQLDao;
 import edu.cmu.hcii.sugilite.dao.SugiliteTrackingDao;
 import edu.cmu.hcii.sugilite.model.block.SugiliteStartingBlock;
 import edu.cmu.hcii.sugilite.tracking.SugiliteTrackingHandler;
+
+import static edu.cmu.hcii.sugilite.Const.SQL_SCRIPT_DAO;
 
 /**
  * A {@link PreferenceActivity} that presents a set of application settings. On
@@ -73,7 +78,10 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
         prefs = PreferenceManager.getDefaultSharedPreferences(this);
         serviceStatusManager = ServiceStatusManager.getInstance(this);
         sugiliteData = (SugiliteData)getApplication();
-        sugiliteScriptDao = new SugiliteScriptDao(this);
+        if(Const.DAO_TO_USE == SQL_SCRIPT_DAO)
+            sugiliteScriptDao = new SugiliteScriptSQLDao(this);
+        else
+            sugiliteScriptDao = new SugiliteScriptFileDao(this, sugiliteData);
         sugiliteTrackingDao = new SugiliteTrackingDao(this);
         trackingHandler = new SugiliteTrackingHandler(sugiliteData, this);
         jsonProcessor = new SugiliteBlockJSONProcessor(this);
@@ -168,9 +176,11 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
                                             //set the active script to the newly created script
                                             sugiliteData.initiateScript(scriptName.getText().toString() + ".SugiliteScript");
                                             sugiliteData.initiatedExternally = false;
+                                            sugiliteData.setCurrentSystemState(SugiliteData.RECORDING_STATE);
                                             //save the newly created script to DB
                                             try {
                                                 sugiliteScriptDao.save((SugiliteStartingBlock) sugiliteData.getScriptHead());
+                                                sugiliteScriptDao.commitSave();
                                             } catch (Exception e) {
                                                 e.printStackTrace();
                                             }
@@ -207,9 +217,17 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
 
                     }
                     else{
-                        if(sugiliteData.initiatedExternally == true && sugiliteData.getScriptHead() != null)
+                        sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
+                        try {
+                            sugiliteScriptDao.commitSave();
+                        }
+                        catch (Exception e){
+                            e.printStackTrace();
+                        }
+                        if(sugiliteData.initiatedExternally == true && sugiliteData.getScriptHead() != null) {
                             sugiliteData.communicationController.sendRecordingFinishedSignal(sugiliteData.getScriptHead().getScriptName());
                             sugiliteData.sendCallbackMsg(Const.FINISHED_RECORDING, jsonProcessor.scriptToJson(sugiliteData.getScriptHead()), sugiliteData.callbackString);
+                        }
                     }
                     break;
 
@@ -402,6 +420,15 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
                 return true;
             }
             return super.onOptionsItemSelected(item);
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+    public static class CrucialKeywordFragment extends ListFragment {
+        @Override
+        public void onCreate (Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+
         }
     }
 

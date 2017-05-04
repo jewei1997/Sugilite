@@ -30,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.lang.reflect.Array;
 import java.text.SimpleDateFormat;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -41,13 +42,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import edu.cmu.hcii.sugilite.Const;
 import edu.cmu.hcii.sugilite.R;
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.communication.SugiliteBlockJSONProcessor;
-import edu.cmu.hcii.sugilite.dao.SugiliteScreenshotManager;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptFileDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptSQLDao;
 import edu.cmu.hcii.sugilite.model.block.SerializableNodeInfo;
 import edu.cmu.hcii.sugilite.model.block.SugiliteAvailableFeaturePack;
 import edu.cmu.hcii.sugilite.model.block.SugiliteBlock;
@@ -56,6 +60,7 @@ import edu.cmu.hcii.sugilite.model.block.SugiliteOperationBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteSpecialOperationBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteStartingBlock;
 import edu.cmu.hcii.sugilite.model.block.UIElementMatchingFilter;
+import edu.cmu.hcii.sugilite.model.operation.SugiliteCrucialOperation;
 import edu.cmu.hcii.sugilite.model.operation.SugiliteLoadVariableOperation;
 import edu.cmu.hcii.sugilite.model.operation.SugiliteOperation;
 import edu.cmu.hcii.sugilite.model.operation.SugiliteSetTextOperation;
@@ -63,6 +68,8 @@ import edu.cmu.hcii.sugilite.model.variable.StringVariable;
 import edu.cmu.hcii.sugilite.model.variable.Variable;
 import edu.cmu.hcii.sugilite.ui.dialog.AbstractSugiliteDialog;
 import edu.cmu.hcii.sugilite.ui.dialog.ChooseVariableDialog;
+
+import static edu.cmu.hcii.sugilite.Const.SQL_SCRIPT_DAO;
 
 /**
  * @author toby
@@ -94,6 +101,9 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
     private String childText = "";
     private String scriptName;
     private static final String TAG = RecordingPopUpDialog.class.getSimpleName();
+
+    //for crucial step keyword
+    private String crucialStepKeyword;
 
     private Spinner actionSpinner, targetTypeSpinner, withInAppSpinner, readoutParameterSpinner, loadVariableParameterSpinner;
     //my new code - added crucialStepCheckbox
@@ -130,13 +140,19 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         this.featurePack = featurePack;
         this.triggerMode = triggerMode;
         this.layoutInflater = inflater;
-        this.alternativeLabels = new HashSet<>(alternativeLabels);
+        if(Const.KEEP_ALL_ALTERNATIVES_IN_THE_FILTER)
+            this.alternativeLabels = new HashSet<>(alternativeLabels);
+        else
+            this.alternativeLabels = new HashSet<>();
         this.screenshotManager = new SugiliteScreenshotManager(sharedPreferences, applicationContext);
         this.skipManager = new RecordingSkipManager();
         this.filterTester = new AlternativeNodesFilterTester();
         this.scriptName = sugiliteData.getScriptHead().getScriptName();
         jsonProcessor = new SugiliteBlockJSONProcessor(applicationContext);
-        sugiliteScriptDao = new SugiliteScriptDao(applicationContext);
+        if(Const.DAO_TO_USE == SQL_SCRIPT_DAO)
+            this.sugiliteScriptDao = new SugiliteScriptSQLDao(applicationContext);
+        else
+            this.sugiliteScriptDao = new SugiliteScriptFileDao(applicationContext, sugiliteData);
         readableDescriptionGenerator = new ReadableDescriptionGenerator(applicationContext);
         checkBoxChildEntryMap = new HashMap<>();
         checkBoxParentEntryMap = new HashMap<>();
@@ -175,13 +191,17 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         this.skipManager = new RecordingSkipManager();
         this.filterTester = new AlternativeNodesFilterTester();
         this.scriptName = originalScript.getScriptName();
+        this.crucialStepKeyword = "";
         jsonProcessor = new SugiliteBlockJSONProcessor(applicationContext);
         if(blockToEdit.getElementMatchingFilter().alternativeLabels != null)
             this.alternativeLabels = new HashSet<>(blockToEdit.getElementMatchingFilter().alternativeLabels);
         else
             this.alternativeLabels = new HashSet<>();
         this.screenshotManager = new SugiliteScreenshotManager(sharedPreferences, applicationContext);
-        sugiliteScriptDao = new SugiliteScriptDao(applicationContext);
+        if(Const.DAO_TO_USE == SQL_SCRIPT_DAO)
+            sugiliteScriptDao = new SugiliteScriptSQLDao(applicationContext);
+        else
+            sugiliteScriptDao = new SugiliteScriptFileDao(applicationContext, sugiliteData);
         readableDescriptionGenerator = new ReadableDescriptionGenerator(applicationContext);
         checkBoxChildEntryMap = new HashMap<>();
         checkBoxParentEntryMap = new HashMap<>();
@@ -322,10 +342,17 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
     {
         SharedPreferences.Editor prefEditor = sharedPreferences.edit();
         prefEditor.putBoolean("recording_in_process", false);
-        prefEditor.commit();
+        prefEditor.apply();
+        try {
+            sugiliteScriptDao.commitSave();
+        }
+        catch (Exception e){
+            e.printStackTrace();
+        }
         if(sugiliteData.initiatedExternally == true && sugiliteData.getScriptHead() != null)
             sugiliteData.communicationController.sendRecordingFinishedSignal(sugiliteData.getScriptHead().getScriptName());
             sugiliteData.sendCallbackMsg(Const.FINISHED_RECORDING, jsonProcessor.scriptToJson(sugiliteData.getScriptHead()), sugiliteData.callbackString);
+        sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
         dialog.dismiss();
     }
 
@@ -367,18 +394,20 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
                 if (sharedPreferences.getBoolean("root_enabled", false)) {
                     try {
                         System.out.println("taking screen shot");
-                        screenshot = screenshotManager.take(false);
+                        screenshot = screenshotManager.take(false, SugiliteScreenshotManager.DIRECTORY_PATH, SugiliteScreenshotManager.getScreenshotFileNameWithDate());
                         operationBlock.setScreenshot(screenshot);
 
                     } catch (Exception e) {
-                        //e.printStackTrace();
+                        e.printStackTrace();
                         System.err.println("[ERROR] Error in taking screenshot, is root access granted?");
                     }
                 }
                 saveBlock(operationBlock, dialogRootView.getContext());
                 //fill in the text box if the operation is of SET_TEXT type
-                if (operationBlock.getOperation().getOperationType() == SugiliteOperation.SET_TEXT && triggerMode == TRIGGERED_BY_NEW_EVENT)
+                if (operationBlock.getOperation().getOperationType() == SugiliteOperation.SET_TEXT && triggerMode == TRIGGERED_BY_NEW_EVENT) {
+                    //should NOT change the current state in SugiliteData here because this is only one step added to specifically handle text entry recording
                     sugiliteData.addInstruction(operationBlock);
+                }
                 if (editCallback != null) {
                     System.out.println("calling callback");
                     editCallback.onClick(null, 0);
@@ -757,17 +786,52 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
 
         crucialStepCheckbox = new CheckBox(dialogRootView.getContext());
         crucialStepCheckbox.setText(Html.fromHtml("Crucial Step"));
-        crucialStepCheckbox.setChecked(crucialStepCheckbox.isChecked());
         identifierLayout.addView(crucialStepCheckbox, layoutParams);
+
+        // We combine content description, text, and the cont desc and text of child nodes into one string
+        // Then we will use KMP Pattern matching algorithm to find keyword in this combined string
+
+        System.out.println("here1");
+        String combinedContDescAndText = featurePack.contentDescription.toLowerCase() + featurePack.text.toLowerCase();
+        for (SerializableNodeInfo child : featurePack.childNodes) {
+            if (child != null && child.contentDescription != null && child.text != null) {
+                combinedContDescAndText += child.contentDescription.toLowerCase();
+                combinedContDescAndText += child.text.toLowerCase();
+            }
+        }
+
+        System.out.println("here1");
 
         // Automatic crucial step detection
         // we are just going to check for keywords for automatic crucial step detection.
-        String[] keywords = {"remove", "delete", "call", "commit", "like", "submit", "post", "send", "buy", "start"};
+        String[] keywords = {"remove", "delete", "call", "like", "submit", "post", "send", "buy", "start",
+                "reserve", "dial", "upload", "install", "shutter", "confirm", "request"};
 
-        for (String word : keywords) {
-            if (featurePack.contentDescription.toLowerCase().contains(word)) {
-                // make the step crucial
+        KMPStringMatching KMP = new KMPStringMatching();
+        System.out.println("here4");
+        for (String keyword : keywords) {
+            System.out.println("keyword = " + keyword);
+            if (KMP.KMPSearch(keyword, combinedContDescAndText) != -1) {
                 crucialStepCheckbox.setChecked(true);
+                crucialStepKeyword = keyword;
+                break;
+            }
+        }
+
+        // regular expressions
+        // cancel * order
+        //
+        List<Pattern> regexes = new ArrayList<Pattern>();
+        regexes.add(Pattern.compile("(cancel\\S+\\b).*(order\\S+\\b)"));
+        regexes.add(Pattern.compile("(cancel\\S+\\b).*(items\\S+\\b)"));
+        regexes.add(Pattern.compile("(pay\\S+\\b).*(balance\\S+\\b)"));
+
+        for (Pattern regex : regexes) {
+            System.out.println("considering regex: " + regex.toString());
+            if (regex.matcher(combinedContDescAndText).matches()) {
+                System.out.println("regex found!");
+                crucialStepCheckbox.setChecked(true);
+                crucialStepKeyword = regex.toString();
                 break;
             }
         }
@@ -1240,6 +1304,8 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
                                 try {
                                     originalScript.relevantPackages.add(featurePack.packageName);
                                     sugiliteScriptDao.save(originalScript);
+                                    //commit save for triggered_by_edit
+                                    sugiliteScriptDao.commitSave();
                                     success = true;
                                 }
                                 catch (Exception e){
@@ -1254,6 +1320,8 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
                                 operationBlock.setNextBlock(((SugiliteOperationBlock) currentBlock).getNextBlock());
                                 try {
                                     sugiliteScriptDao.save(originalScript);
+                                    //commit save for triggered_by_edit
+                                    sugiliteScriptDao.commitSave();
                                     success = true;
                                 }
                                 catch (Exception e){
@@ -1369,7 +1437,7 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
 
     private SugiliteOperationBlock generateBlock(){
         //determine the action first
-        SugiliteOperation sugiliteOperation = new SugiliteOperation();
+        SugiliteOperation sugiliteOperation = new SugiliteCrucialOperation();
         String actionSpinnerSelectedItem = actionSpinner.getSelectedItem().toString();
         if (actionSpinnerSelectedItem.contentEquals("Click"))
             sugiliteOperation.setOperationType(SugiliteOperation.CLICK);
@@ -1411,8 +1479,8 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
             */
         }
 
-        // for manual crucial step detection
-        sugiliteOperation.setIsCrucial(crucialStepCheckbox.isChecked());
+        ((SugiliteCrucialOperation) sugiliteOperation).setIsCrucial(crucialStepCheckbox.isChecked());
+        ((SugiliteCrucialOperation)sugiliteOperation).setCrucialKeyword(crucialStepKeyword);
 
         final SugiliteOperationBlock operationBlock = new SugiliteOperationBlock();
         operationBlock.setOperation(sugiliteOperation);
@@ -1434,7 +1502,7 @@ public class RecordingPopUpDialog extends AbstractSugiliteDialog {
         linearLayout.setOrientation(LinearLayout.VERTICAL);
         TextView setVariableLink = new TextView(dialogRootView.getContext());
         setVariableLink.setText(Html.fromHtml("<u><i>Set as a parameter</i></u>"));
-        setVariableLink.setTextColor(Color.parseColor("#8bb5f8"));
+        setVariableLink.setTextColor(Color.parseColor(Const.SCRIPT_LINK_COLOR));
         setVariableLink.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {

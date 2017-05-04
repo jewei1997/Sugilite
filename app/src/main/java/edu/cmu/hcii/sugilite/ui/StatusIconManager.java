@@ -6,10 +6,12 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.net.Uri;
 import android.provider.Settings;
+import android.text.Html;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.GestureDetector;
@@ -18,11 +20,16 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Queue;
 import java.util.Random;
@@ -31,10 +38,13 @@ import edu.cmu.hcii.sugilite.Const;
 import edu.cmu.hcii.sugilite.R;
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.automation.Automator;
+import edu.cmu.hcii.sugilite.automation.ErrorHandler;
 import edu.cmu.hcii.sugilite.automation.ServiceStatusManager;
 import edu.cmu.hcii.sugilite.communication.SugiliteBlockJSONProcessor;
-import edu.cmu.hcii.sugilite.dao.SugiliteScreenshotManager;
+import edu.cmu.hcii.sugilite.recording.SugiliteScreenshotManager;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptFileDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptSQLDao;
 import edu.cmu.hcii.sugilite.model.block.SugiliteBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteDelaySpecialOperationBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteOperationBlock;
@@ -48,6 +58,9 @@ import edu.cmu.hcii.sugilite.recording.ReadableDescriptionGenerator;
 import edu.cmu.hcii.sugilite.ui.dialog.NewScriptDialog;
 import edu.cmu.hcii.sugilite.ui.dialog.SelectElementWithTextDialog;
 import edu.cmu.hcii.sugilite.ui.main.SugiliteMainActivity;
+
+import static android.content.ContentValues.TAG;
+import static edu.cmu.hcii.sugilite.Const.SQL_SCRIPT_DAO;
 
 /**
  * @author toby
@@ -65,21 +78,27 @@ public class StatusIconManager {
     private SugiliteScreenshotManager screenshotManager;
     private SugiliteBlockJSONProcessor jsonProcessor;
     private ReadableDescriptionGenerator descriptionGenerator;
-    private WindowManager.LayoutParams params;
+    private WindowManager.LayoutParams iconParams, textViewParams;
     private VariableHelper variableHelper;
     private LayoutInflater layoutInflater;
     private Random random;
-    protected static final String TAG = StatusIconManager.class.getSimpleName();
+    private AccessibilityManager accessibilityManager;
+    private CurrentStateView statusView;
+    private Queue<SugiliteBlock> storedQueue;
 
-    public StatusIconManager(Context context, SugiliteData sugiliteData, SharedPreferences sharedPreferences){
+    public StatusIconManager(Context context, SugiliteData sugiliteData, SharedPreferences sharedPreferences, AccessibilityManager accessibilityManager){
         this.context = context;
         windowManager = (WindowManager) context.getSystemService(context.WINDOW_SERVICE);
         this.sugiliteData = sugiliteData;
         this.sharedPreferences = sharedPreferences;
-        this.sugiliteScriptDao = new SugiliteScriptDao(context);
+        if(Const.DAO_TO_USE == SQL_SCRIPT_DAO)
+            sugiliteScriptDao = new SugiliteScriptSQLDao(context);
+        else
+            sugiliteScriptDao = new SugiliteScriptFileDao(context, sugiliteData);
         this.serviceStatusManager = ServiceStatusManager.getInstance(context);
         this.screenshotManager = new SugiliteScreenshotManager(sharedPreferences, context);
         this.layoutInflater = (LayoutInflater) context.getSystemService( Context.LAYOUT_INFLATER_SERVICE );
+        this.accessibilityManager = accessibilityManager;
         variableHelper = new VariableHelper(sugiliteData.stringVariableMap);
         jsonProcessor = new SugiliteBlockJSONProcessor(context);
         descriptionGenerator = new ReadableDescriptionGenerator(context);
@@ -94,7 +113,8 @@ public class StatusIconManager {
         Log.d(TAG, "in addStatusIcon()");
         statusIcon = new ImageView(context);
         statusIcon.setImageResource(R.mipmap.ic_launcher);
-        params = new WindowManager.LayoutParams(
+        statusView = getViewForCurrentState("");
+        iconParams = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.TYPE_PHONE,
@@ -105,20 +125,31 @@ public class StatusIconManager {
         windowManager.getDefaultDisplay().getMetrics(displaymetrics);
 
 
-        params.gravity = Gravity.TOP | Gravity.LEFT;
-        params.x = displaymetrics.widthPixels;
-        params.y = 200;
-        addCrumpledPaperOnTouchListener(statusIcon, params, displaymetrics, windowManager);
+        iconParams.gravity = Gravity.TOP | Gravity.LEFT;
+        iconParams.x = displaymetrics.widthPixels;
+        iconParams.y = 200;
+        addCrumpledPaperOnTouchListener(statusIcon, iconParams, displaymetrics, windowManager);
+
+
+        textViewParams = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_PHONE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT);
+        textViewParams.gravity = Gravity.BOTTOM | Gravity.CENTER;
 
         //NEEDED TO BE CONFIGURED AT APPS->SETTINGS-DRAW OVER OTHER APPS on API>=23
         int currentApiVersion = android.os.Build.VERSION.SDK_INT;
         if(currentApiVersion >= 23){
             checkDrawOverlayPermission();
             if(Settings.canDrawOverlays(context))
-                windowManager.addView(statusIcon, params);
+                windowManager.addView(statusIcon, iconParams);
+                windowManager.addView(statusView, textViewParams);
         }
         else {
-            windowManager.addView(statusIcon, params);
+            windowManager.addView(statusIcon, iconParams);
+            windowManager.addView(statusView, textViewParams);
         }
 
 
@@ -158,43 +189,93 @@ public class StatusIconManager {
         }
         int offset = random.nextInt(5);
 
-
         try{
+            SugiliteBlock nextBlock = null;
             if(statusIcon != null){
                 boolean recordingInProcess = sharedPreferences.getBoolean("recording_in_process", false);
                 boolean trackingInProcess = sharedPreferences.getBoolean("tracking_in_process", false);
                 boolean broadcastingInProcess = sharedPreferences.getBoolean("broadcasting_enabled", false);
-                /*if (sugiliteData.getIsCrucialStepPaused()) {
-                    statusIcon.setImageResource(R.mipmap.duck_icon_paused2);
-                }
-                else {*/
-                if (recordingInProcess)
+                if(recordingInProcess)
                     statusIcon.setImageResource(R.mipmap.duck_icon_recording);
-                else if (sugiliteData.getInstructionQueueSize() > 0) {
+                else if(sugiliteData.getInstructionQueueSize() > 0) {
+                    nextBlock = sugiliteData.peekInstructionQueue();
                     statusIcon.setImageResource(R.mipmap.duck_icon_playing);
-                    if (matched) {
-                        params.x = (rect.centerX() > 150 ? rect.centerX() - 150 : 0);
-                        params.y = (rect.centerY() > 150 ? rect.centerY() - 150 : 0);
+                    if(matched) {
+                        iconParams.x = (rect.centerX() > 150 ? rect.centerX()  - 150 : 0);
+                        iconParams.y = (rect.centerY() > 150 ? rect.centerY()  - 150 : 0);
                     }
-                    if (offset % 2 == 0) {
-                        params.x = params.x + offset;
-                        params.y = params.y - offset;
-                    } else {
-                        params.x = params.x - offset;
-                        params.y = params.y + offset;
+                    if(offset % 2 == 0) {
+                        iconParams.x = iconParams.x + offset;
+                        iconParams.y = iconParams.y - offset;
+                    }
+                    else {
+                        iconParams.x = iconParams.x - offset;
+                        iconParams.y = iconParams.y + offset;
                     }
 
-                    windowManager.updateViewLayout(statusIcon, params);
-                } else if (trackingInProcess || (broadcastingInProcess && sugiliteData.registeredBroadcastingListener.size() > 0)) {
-                    statusIcon.setImageResource(R.mipmap.duck_icon_spying);
-                } else if (sugiliteData.getIsCrucialStepPaused()) {
-                    statusIcon.setImageResource(R.mipmap.duck_icon_paused2);
-                } else {
-                    statusIcon.setImageResource(R.mipmap.ic_launcher);
+                    windowManager.updateViewLayout(statusIcon, iconParams);
+
+
+                    /**
+                     *
+                     *
+                     *  send out empty accessibility event for triggering the automator
+                     *
+                     *
+                     */
+
+                    //only send this out when the previous successful operation (check the error handler) was more than X seconds ago
+                    long sinceLastWindowChange = -1;
+                    if(sugiliteData.errorHandler != null) {
+                        Calendar calendar = Calendar.getInstance();
+                        long currentTime = calendar.getTimeInMillis();
+                        sinceLastWindowChange = currentTime - sugiliteData.errorHandler.getLastWindowChange();
+                    }
+                    if(sinceLastWindowChange < 0 || sinceLastWindowChange > Const.THRESHOLD_FOR_START_SENDING_ACCESSIBILITY_EVENT) {
+                        System.out.println("INFO: SENDING GENERATED ACCESSIBILITY EVENT: sinceLastWindowChange = " + sinceLastWindowChange);
+                        AccessibilityEvent event = AccessibilityEvent.obtain();
+                        event.setEventType(AccessibilityEvent.TYPE_ANNOUNCEMENT);
+                        event.getText().add("NULL");
+                        accessibilityManager.sendAccessibilityEvent(event);
+                    }
+
                 }
-                //}
+                else if(trackingInProcess || (broadcastingInProcess && sugiliteData.registeredBroadcastingListener.size() > 0)){
+                    statusIcon.setImageResource(R.mipmap.duck_icon_spying);
+                }
+                else if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_BREAKPOINT_STATE){
+                    statusIcon.setImageResource(R.mipmap.debug_transparent_icon);
+                }
+                else
+                    statusIcon.setImageResource(R.mipmap.ic_launcher);
 
             }
+            //refresh the status view based on the current state
+            if(nextBlock != null && sugiliteData.getCurrentSystemState() == SugiliteData.REGULAR_DEBUG_STATE){
+                statusView.setCurrentStateView(sugiliteData.getCurrentSystemState(), nextBlock.getDescription());
+            }
+            else if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE || sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE){
+                if(storedQueue != null && storedQueue.size() > 0) {
+                    SugiliteBlock block = storedQueue.peek();
+                    if(block != null) {
+                        statusView.setCurrentStateView(sugiliteData.getCurrentSystemState(), storedQueue.peek().getDescription());
+                        System.out.print("show paused_for_duck_menu status view for " + storedQueue.peek().getDescription());
+                    }
+                }
+            }
+            else if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_BREAKPOINT_STATE){
+                if(sugiliteData.storedInstructionQueueForPause != null && sugiliteData.storedInstructionQueueForPause.size() > 0) {
+                    SugiliteBlock block = sugiliteData.storedInstructionQueueForPause.peek();
+                    if(block != null) {
+                        statusView.setCurrentStateView(sugiliteData.getCurrentSystemState(), block.getDescription());
+                        System.out.print("show paused_for_breakpoint_state status view for " + block.getDescription());
+                    }
+                }
+            }
+            else {
+                statusView.setCurrentStateView(sugiliteData.getCurrentSystemState(), "");
+            }
+
 
         }
         catch (Exception e){
@@ -249,6 +330,10 @@ public class StatusIconManager {
                     //set pop up title
                     if(recordingInProcess){
                         textDialogBuilder.setTitle("RECORDING: " + scriptDefinedName);
+
+                        if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_BREAKPOINT_STATE){
+                            textDialogBuilder.setTitle("PAUSED FOR A BREAKPOINT");
+                        }
                     }
                     else if (sugiliteData.getScriptHead() != null){
                         textDialogBuilder.setTitle("NOT RECORDING\nLAST RECORDED: " + scriptDefinedName);
@@ -261,16 +346,37 @@ public class StatusIconManager {
                     boolean recordingInProgress = sharedPreferences.getBoolean("recording_in_process", false);
                     final boolean runningInProgress = sugiliteData.getInstructionQueueSize() > 0;
 
+
+
                     //pause the execution when the duck is clicked
-                    final Queue<SugiliteBlock> storedQueue = runningInProgress ? sugiliteData.getCopyOfInstructionQueue() : null;
-                    if(runningInProgress)
+                    storedQueue = runningInProgress ? sugiliteData.getCopyOfInstructionQueue() : null;
+                    final int previousState = sugiliteData.getCurrentSystemState();
+                    if(runningInProgress) {
                         sugiliteData.clearInstructionQueue();
+                        if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_BREAKPOINT_STATE
+                                || sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_ERROR_HANDLING_STATE
+                                || sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_CRUCIAL_STEP_STATE){
+                            //TODO: change the icon based on the current status
+                        }
+                        else {
+                            if(previousState == SugiliteData.REGULAR_DEBUG_STATE)
+                                sugiliteData.setCurrentSystemState(SugiliteData.PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE);
+                            else
+                                sugiliteData.setCurrentSystemState(SugiliteData.PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE);
+                        }
+                    }
 
                     // get whether the app is paused due to a crucial step
                     boolean isCrucialStepPaused = sugiliteData.getIsCrucialStepPaused();
+                    //TODO: show different menu intems for different state
 
                     List<String> operationList = new ArrayList<>();
-                    if(runningInProgress) {
+                    if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_BREAKPOINT_STATE){
+                        operationList.add("Resume Next Step");
+                        operationList.add("Quit Debugging");
+                    }
+                    if(sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE
+                            || sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE) {
                         operationList.add("Resume Running");
                         operationList.add("Clear Instruction Queue");
                     }
@@ -322,6 +428,8 @@ public class StatusIconManager {
                                         Log.d(TAG, "Should never get here! User wanted to resume recording from crucial step, " +
                                                 "but there was no instruction queue to resume to. Invariant was broken! ");
                                     }
+                                    if(runningInProgress)
+                                        sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
                                     break;
                                 //bring the user to the script list activity
                                 case "View Last Recording":
@@ -333,16 +441,25 @@ public class StatusIconManager {
                                         context.startActivity(intent);
                                     }
                                     Toast.makeText(context, "view current script", Toast.LENGTH_SHORT).show();
+                                    if(runningInProgress)
+                                        sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
                                     break;
                                 case "End Recording":
                                     //end recording
                                     SharedPreferences.Editor prefEditor = sharedPreferences.edit();
                                     prefEditor.putBoolean("recording_in_process", false);
-                                    prefEditor.commit();
+                                    prefEditor.apply();
+                                    try {
+                                        sugiliteScriptDao.commitSave();
+                                    }
+                                    catch (Exception e){
+                                        e.printStackTrace();
+                                    }
                                     if (sugiliteData.initiatedExternally == true && sugiliteData.getScriptHead() != null) {
                                         sugiliteData.communicationController.sendRecordingFinishedSignal(sugiliteData.getScriptHead().getScriptName());
                                         sugiliteData.sendCallbackMsg(Const.FINISHED_RECORDING, jsonProcessor.scriptToJson(sugiliteData.getScriptHead()), sugiliteData.callbackString);
                                     }
+                                    sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
                                     Toast.makeText(context, "end recording", Toast.LENGTH_SHORT).show();
                                     sugiliteData.setIsCrucialStepPaused(false);
                                     break;
@@ -357,14 +474,15 @@ public class StatusIconManager {
                                     sugiliteData.initiatedExternally = false;
                                     SharedPreferences.Editor prefEditor2 = sharedPreferences.edit();
                                     prefEditor2.putBoolean("recording_in_process", true);
-                                    prefEditor2.commit();
+                                    prefEditor2.apply();
                                     Toast.makeText(context, "resume recording", Toast.LENGTH_SHORT).show();
                                     sugiliteData.setIsCrucialStepPaused(false);
+                                    sugiliteData.setCurrentSystemState(SugiliteData.RECORDING_STATE);
                                     break;
                                 case "Quit Sugilite":
                                     Toast.makeText(context, "quit sugilite", Toast.LENGTH_SHORT).show();
                                     try {
-                                        screenshotManager.take(false);
+                                        screenshotManager.take(false, SugiliteScreenshotManager.DIRECTORY_PATH, SugiliteScreenshotManager.getScreenshotFileNameWithDate());
                                     } catch (Exception e) {
                                         e.printStackTrace();
                                     }
@@ -372,6 +490,7 @@ public class StatusIconManager {
                                     break;
                                 case "Clear Instruction Queue":
                                     sugiliteData.clearInstructionQueue();
+                                    sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
                                     storedQueue.clear();
                                     break;
                                 case "Resume Running":
@@ -413,7 +532,13 @@ public class StatusIconManager {
                                 case "Add Running a Subscript":
                                     final SugiliteSubscriptSpecialOperationBlock subscriptBlock = new SugiliteSubscriptSpecialOperationBlock();
                                     subscriptBlock.setDescription(descriptionGenerator.generateReadableDescription(subscriptBlock));
-                                    List<String> subscriptNames = sugiliteScriptDao.getAllNames();
+                                    List<String> subscriptNames = new ArrayList<String>();
+                                    try {
+                                        subscriptNames = sugiliteScriptDao.getAllNames();
+                                    }
+                                    catch (Exception e){
+                                        e.printStackTrace();
+                                    }
                                     AlertDialog.Builder chooseSubscriptDialogBuilder = new AlertDialog.Builder(context);
                                     String[] subscripts = new String[subscriptNames.size()];
                                     subscripts = subscriptNames.toArray(subscripts);
@@ -426,7 +551,13 @@ public class StatusIconManager {
                                             String chosenScriptName = subscriptClone[which];
                                             //add a subscript operation block with the script name "chosenScriptName"
                                             subscriptBlock.setSubscriptName(chosenScriptName);
-                                            SugiliteStartingBlock script = sugiliteScriptDao.read(chosenScriptName);
+                                            SugiliteStartingBlock script = null;
+                                            try {
+                                                script = sugiliteScriptDao.read(chosenScriptName);
+                                            }
+                                            catch (Exception e){
+                                                e.printStackTrace();
+                                            }
                                             if(script != null) {
                                                 try {
                                                     SugiliteBlock currentBlock = sugiliteData.getCurrentScriptBlock();
@@ -507,6 +638,20 @@ public class StatusIconManager {
                                     SelectElementWithTextDialog selectElementWithTextDialog = new SelectElementWithTextDialog(context, layoutInflater, sugiliteData);
                                     selectElementWithTextDialog.show();
                                     break;
+                                case "Resume Next Step":
+                                    if(sugiliteData.storedInstructionQueueForPause.peek() != null && sugiliteData.storedInstructionQueueForPause.peek() instanceof SugiliteOperationBlock)
+                                        ((SugiliteOperationBlock) sugiliteData.storedInstructionQueueForPause.peek()).isSetAsABreakPoint = false;
+                                    sugiliteData.addInstructions(sugiliteData.storedInstructionQueueForPause);
+                                    sugiliteData.storedInstructionQueueForPause.clear();
+                                    sugiliteData.setCurrentSystemState(SugiliteData.REGULAR_DEBUG_STATE);
+                                    dialog.dismiss();
+                                    break;
+                                case "Quit Debugging":
+                                    sugiliteData.storedInstructionQueueForPause.clear();
+                                    sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
+                                    dialog.dismiss();
+                                    break;
+
                                 default:
                                     //do nothing
                             }
@@ -516,9 +661,11 @@ public class StatusIconManager {
                     dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
                         @Override
                         public void onDismiss(DialogInterface dialog) {
-                            if (runningInProgress) {
+                            if (sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE
+                                    || sugiliteData.getCurrentSystemState() == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE) {
                                 //restore execution
                                 sugiliteData.addInstructions(storedQueue);
+                                sugiliteData.setCurrentSystemState(previousState);
                             }
                         }
                     });
@@ -559,6 +706,7 @@ public class StatusIconManager {
         });
     }
 
+    @Deprecated
     public void moveIcon (int x ,int y){
         if(statusIcon == null)
             return;
@@ -573,6 +721,69 @@ public class StatusIconManager {
         params.y = y;
         windowManager.updateViewLayout(statusIcon, params);
         statusIcon.invalidate();
+    }
+
+    /**
+     * class used to display the state overlay shown at the bottom of the screen
+     */
+    class CurrentStateView extends LinearLayout{
+        private TextView currentStateView;
+        private TextView nextOperationView;
+        private int currentState;
+
+        public CurrentStateView(Context context, int currentState, String nextOperationHTMLDescription){
+            super(context);
+            this.currentState = currentState;
+            currentStateView = new TextView(context);
+            nextOperationView = new TextView(context);
+            this.setOrientation(VERTICAL);
+            if(currentState == SugiliteData.DEFAULT_STATE){
+                currentStateView.setTextColor(Color.YELLOW);
+                currentStateView.setText("");
+                nextOperationView.setTextColor(Color.WHITE);
+                nextOperationView.setText("");
+            }
+            else{
+                currentStateView.setText(SugiliteData.getStringforState(currentState));
+                currentStateView.setTextColor(Color.YELLOW);
+                currentStateView.setBackgroundColor(Const.SEMI_TRANSPARENT_GRAY_BACKGROUND);
+                nextOperationView.setTextColor(Color.WHITE);
+                nextOperationView.setText("");
+                if(currentState == SugiliteData.REGULAR_DEBUG_STATE || currentState == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE) {
+                    nextOperationView.setText(Html.fromHtml("<b>Next Operation: </b>" + nextOperationHTMLDescription));
+                    nextOperationView.setBackgroundColor(Const.SEMI_TRANSPARENT_GRAY_BACKGROUND);
+                }
+            }
+            this.addView(currentStateView);
+            this.addView(nextOperationView);
+        }
+
+        public void setCurrentStateView(int currentState, String nextOperationHTMLDescription){
+            this.currentState = currentState;
+            this.setOrientation(VERTICAL);
+            if(currentState == SugiliteData.DEFAULT_STATE){
+                currentStateView.setBackground(null);
+                currentStateView.setText("");
+                nextOperationView.setBackground(null);
+                nextOperationView.setText("");
+            }
+            else{
+                currentStateView.setText(SugiliteData.getStringforState(currentState));
+                currentStateView.setTextColor(Color.YELLOW);
+                currentStateView.setBackgroundColor(Const.SEMI_TRANSPARENT_GRAY_BACKGROUND);
+                nextOperationView.setText("");
+                nextOperationView.setBackground(null);
+                if(currentState == SugiliteData.REGULAR_DEBUG_STATE || currentState == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE || currentState == SugiliteData.PAUSED_FOR_BREAKPOINT_STATE || currentState == SugiliteData.PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE) {
+                    nextOperationView.setBackgroundColor(Const.SEMI_TRANSPARENT_GRAY_BACKGROUND);
+                    nextOperationView.setText(Html.fromHtml("<b>Next Operation: </b>" + nextOperationHTMLDescription));
+                }
+            }
+        }
+    }
+
+    private CurrentStateView getViewForCurrentState(String nextOperationHTMLDescription){
+        int state = sugiliteData.getCurrentSystemState();
+        return new CurrentStateView(context, state, nextOperationHTMLDescription);
     }
 
 

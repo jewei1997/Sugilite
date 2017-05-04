@@ -11,6 +11,7 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
 
@@ -29,7 +30,7 @@ import java.util.Set;
 import edu.cmu.hcii.sugilite.communication.SugiliteCommunicationController;
 import edu.cmu.hcii.sugilite.communication.SugiliteEventBroadcastingActivity;
 import edu.cmu.hcii.sugilite.dao.SugiliteAppVocabularyDao;
-import edu.cmu.hcii.sugilite.dao.SugiliteScreenshotManager;
+import edu.cmu.hcii.sugilite.recording.SugiliteScreenshotManager;
 import edu.cmu.hcii.sugilite.model.AccessibilityNodeInfoList;
 import edu.cmu.hcii.sugilite.automation.*;
 import edu.cmu.hcii.sugilite.model.block.SerializableNodeInfo;
@@ -78,7 +79,8 @@ public class SugiliteAccessibilityService extends AccessibilityService {
         if( getApplication() instanceof  SugiliteData ) {
             sugiliteData = (SugiliteData) getApplication();
         }
-        statusIconManager = new StatusIconManager(this, sugiliteData, sharedPreferences);
+        AccessibilityManager accessibilityManager = (AccessibilityManager) this.getSystemService(Context.ACCESSIBILITY_SERVICE);
+        statusIconManager = new StatusIconManager(this, sugiliteData, sharedPreferences, accessibilityManager);
         screenshotManager = new SugiliteScreenshotManager(sharedPreferences, getApplicationContext());
         automator = new Automator(sugiliteData, this, statusIconManager, sharedPreferences);
         sugilteTrackingHandler = new SugiliteTrackingHandler(sugiliteData, getApplicationContext());
@@ -107,7 +109,8 @@ public class SugiliteAccessibilityService extends AccessibilityService {
                 AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
                 AccessibilityEvent.TYPE_WINDOWS_CHANGED,
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED};
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+                AccessibilityEvent.TYPE_ANNOUNCEMENT};
         Integer[] accessiblityEventArrayToSend = {AccessibilityEvent.TYPE_VIEW_CLICKED,
                 AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
                 AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED};
@@ -379,8 +382,9 @@ public class SugiliteAccessibilityService extends AccessibilityService {
             }
         }
 
-        // broadcast the accessibility event received, for any app that may want to listen
-        if(BROADCASTING_ACCESSIBILITY_EVENT) {
+        ////// broadcast the accessibility event received, for any app that may want to listen
+
+        if(BROADCASTING_ACCESSIBILITY_EVENT) { // if broadcasting is enabled
             try {
                if (accessibilityEventSetToTrack.contains(event.getEventType()) && (!trackingExcludedPackages.contains(event.getPackageName()))) {
                     SugiliteEventBroadcastingActivity.BroadcastingEvent broadcastingEvent = new SugiliteEventBroadcastingActivity.BroadcastingEvent(event);
@@ -391,18 +395,20 @@ public class SugiliteAccessibilityService extends AccessibilityService {
                     String pkg = broadcastingEvent.packageName;
                     String event_type = broadcastingEvent.eventType;
 
-                    // if it is a home press event ...
+                    // filter on what kinds of events should to be broadcasted ...
                     //if(desc.contentEquals("Home") && event_type.contentEquals("TYPE_VIEW_CLICKED") && pkg.contentEquals("com.android.systemui"))
                     if (true) {
                         String messageToSend = gson.toJson(broadcastingEvent);
 
-                        //FIXME: modified by Oscar
-                        sugiliteData.communicationController.sendMessage( Const.RESPONSE,
-                                Const.ACCESSIBILITY_EVENT, messageToSend);
-//                        Intent intent = new Intent();
-//                        intent.setAction("edu.cmu.hcii.sugilite.SUGILITE_EVENT");
-//                        intent.putExtra("event_string", messageToSend);
-//                        sendBroadcast(intent);
+                        // send info to middleware
+//                        sugiliteData.communicationController.sendMessage( Const.RESPONSE,
+//                                Const.ACCESSIBILITY_EVENT, messageToSend);
+
+                        // broadcast info for receivers of other apps
+                        Intent intent = new Intent();
+                        intent.setAction("edu.cmu.hcii.sugilite.SUGILITE_ACC_EVENT");
+                        intent.putExtra("accEvent", messageToSend);
+                        sendBroadcast(intent);
                     }
                 }
             } catch (Exception e) {
@@ -452,6 +458,7 @@ public class SugiliteAccessibilityService extends AccessibilityService {
 
 
         if(sugiliteData.getInstructionQueueSize() > 0) {
+            //System.out.println("attemping to run automation on the rootnode " + rootNode);
             //run automation
             if(automatorThread == null) {
                 automatorThread = new Thread(new Runnable() {
@@ -656,6 +663,14 @@ public class SugiliteAccessibilityService extends AccessibilityService {
         return retMap;
     }
 
+    /**
+     * get alternative nodes: anything that is clickable, of the same class type as the source node
+     * and not in the excepted packages
+     *
+     * @param sourceNode
+     * @param rootNode
+     * @return
+     */
     protected HashSet<SerializableNodeInfo> getAvailableAlternativeNodes (AccessibilityNodeInfo sourceNode, AccessibilityNodeInfo rootNode){
         List<AccessibilityNodeInfo> allNodes = Automator.preOrderTraverse(rootNode);
         HashSet<SerializableNodeInfo> retSet = new HashSet<>();
@@ -663,6 +678,12 @@ public class SugiliteAccessibilityService extends AccessibilityService {
             return retSet;
         for(AccessibilityNodeInfo node : allNodes){
             if(exceptedPackages.contains(node.getPackageName()))
+                continue;
+            if(sourceNode != null &&
+                    node != null &&
+                    node.getClassName() != null &&
+                    sourceNode.getClassName() != null &&
+                    (!sourceNode.getClassName().toString().equals(node.getClassName().toString())))
                 continue;
             if(!node.isClickable())
                 continue;

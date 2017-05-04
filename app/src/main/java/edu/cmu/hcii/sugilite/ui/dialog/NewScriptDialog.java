@@ -16,6 +16,7 @@ import edu.cmu.hcii.sugilite.Const;
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.automation.ServiceStatusManager;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptSQLDao;
 
 /**
  * @author toby
@@ -56,12 +57,17 @@ public class NewScriptDialog extends AbstractSugiliteDialog {
                             editor.putString("scriptName", scriptName.getText().toString());
                             editor.putBoolean("recording_in_process", true);
                             editor.commit();
+
+                            //set the system state
+                            sugiliteData.setCurrentSystemState(SugiliteData.RECORDING_STATE);
+
                             //set the active script to the newly created script
                             sugiliteData.initiateScript(scriptName.getText().toString() + ".SugiliteScript");
                             sugiliteData.initiatedExternally = false;
                             //save the newly created script to DB
                             try {
                                 sugiliteScriptDao.save(sugiliteData.getScriptHead());
+                                sugiliteScriptDao.commitSave();
                             }
                             catch (Exception e){
                                 e.printStackTrace();

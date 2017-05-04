@@ -16,14 +16,19 @@ import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
 
+import edu.cmu.hcii.sugilite.Const;
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptFileDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptSQLDao;
 import edu.cmu.hcii.sugilite.model.block.SugiliteBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteErrorHandlingForkBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteOperationBlock;
 import edu.cmu.hcii.sugilite.model.block.SugiliteStartingBlock;
 import edu.cmu.hcii.sugilite.model.operation.SugiliteOperation;
 import edu.cmu.hcii.sugilite.recording.ReadableDescriptionGenerator;
+
+import static edu.cmu.hcii.sugilite.Const.SQL_SCRIPT_DAO;
 
 /**
  * @author toby
@@ -54,8 +59,15 @@ public class ErrorHandler {
         this.sugiliteData = sugiliteData;
         this.descriptionGenerator = new ReadableDescriptionGenerator(context);
         this.sharedPreferences = sharedPreferences;
-        sugiliteScriptDao = new SugiliteScriptDao(context);
+        if(Const.DAO_TO_USE == SQL_SCRIPT_DAO)
+            this.sugiliteScriptDao = new SugiliteScriptSQLDao(context);
+        else
+            this.sugiliteScriptDao = new SugiliteScriptFileDao(context, sugiliteData);
         excludedPackageFromWrongPackage = new HashSet<>(Arrays.asList(excludedPackageSet));
+    }
+
+    public long getLastWindowChange(){
+        return lastWindowChange;
     }
 
     /*
@@ -96,8 +108,10 @@ public class ErrorHandler {
         if(event.getSource() != null && event.getSource().getPackageName() != null) {
             String oldPackage = lastPackageName;
             lastPackageName = event.getSource().getPackageName().toString();
+            /*
             if(oldPackage != null && lastPackageName != null && !oldPackage.equals(lastPackageName))
                 System.out.println("last package set to " + lastPackageName);
+                */
         }
 
         //handle wrong package error
@@ -129,8 +143,7 @@ public class ErrorHandler {
         long sinceLastWindowChange = currentTime - lastWindowChange;
         long sinceLastSuccesss = currentTime - lastSuccess;
         lastCheckTime = currentTime;
-        System.out.println("Since last success: " + (currentTime - lastSuccess) + "\n" +
-        "Since last window change: " + (currentTime - lastWindowChange) + "\n\n");
+        //System.out.println("Since last success: " + (currentTime - lastSuccess) + "\n" + "Since last window change: " + (currentTime - lastWindowChange) + "\n\n");
         if(sinceLastSuccesss > LAST_SUCCESSFUL_OPERATION){
             //stucked
             handleError("The current window is not responding in executing the next operation: " + nextInstruction.getDescription() + "<br><br>" + "sinceLastSuccess: " + sinceLastSuccesss + "<br>" + "Stucked! Too long since the last success.");
@@ -152,6 +165,8 @@ public class ErrorHandler {
         Log.d(TAG, "in handleError()");
         final Queue<SugiliteBlock> storedQueue =  sugiliteData.getCopyOfInstructionQueue();
         sugiliteData.clearInstructionQueue();
+        final int previousState = sugiliteData.getCurrentSystemState();
+        sugiliteData.setCurrentSystemState(SugiliteData.PAUSED_FOR_ERROR_HANDLING_STATE);
 
         AlertDialog.Builder builder = new AlertDialog.Builder(applicationContext);
         builder.setTitle("Script Execution Error")
@@ -162,6 +177,7 @@ public class ErrorHandler {
                         //reset the timer when the user chooses to keep waiting
                         reportSuccess(Calendar.getInstance().getTimeInMillis());
                         sugiliteData.addInstructions(storedQueue);
+                        sugiliteData.setCurrentSystemState(previousState);
                         dialog.dismiss();
                     }
                 })
@@ -169,6 +185,7 @@ public class ErrorHandler {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         sugiliteData.clearInstructionQueue();
+                        sugiliteData.setCurrentSystemState(SugiliteData.DEFAULT_STATE);
                         Toast.makeText(applicationContext, "Cleared Operation Queue!", Toast.LENGTH_SHORT).show();
                         dialog.dismiss();
                     }
@@ -195,6 +212,7 @@ public class ErrorHandler {
                                     @Override
                                     public void onClick(DialogInterface dialog, int which) {
                                         forkResumeRecording(startingBlock, currentBlock);
+                                        sugiliteData.setCurrentSystemState(SugiliteData.RECORDING_FOR_ERROR_HANDLING_STATE);
                                     }
                                 })
                                 .setNegativeButton("New Fork", new DialogInterface.OnClickListener() {
@@ -202,6 +220,7 @@ public class ErrorHandler {
                                     @Override
                                     public void onClick(DialogInterface dialog, int which) {
                                         forkParallelBranchResumeRecording(startingBlock, currentBlock);
+                                        sugiliteData.setCurrentSystemState(SugiliteData.RECORDING_FOR_ERROR_HANDLING_STATE);
                                     }
                                 });
                         AlertDialog replaceOrParallelDialog = replaceOrParallelDialogBuilder.create();

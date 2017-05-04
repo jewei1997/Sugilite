@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ListPreference xmlns:android="http://schemas.android.com/apk/res/android">
+    android:key="crucial_keyword_list"
+    android:title="Crucial Keyword List"
+    android:entries="@crucial_keywords/crucialKeywords"
+    android:entryValues="@crucial_keywords/crucialKeywords"/>
+</ListPreference>

@@ -6,16 +6,17 @@ import android.os.Environment;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
-import com.opencsv.CSVWriter;
+
 
 import java.io.File;
 import java.io.FileWriter;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import com.opencsv.*;
+
 
 import edu.cmu.hcii.sugilite.SugiliteData;
-import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
 import edu.cmu.hcii.sugilite.dao.SugiliteTrackingDao;
 import edu.cmu.hcii.sugilite.model.block.SerializableNodeInfo;
 import edu.cmu.hcii.sugilite.model.block.SugiliteAvailableFeaturePack;
@@ -104,21 +105,14 @@ public class SugiliteTrackingHandler {
                 line += featurePack.packageName + ",";
                 line += featurePack.className + ",";
                 line += featurePack.text + ",";
-                line += featurePack.contentDescription;
-
-
-                /*
+                line += featurePack.contentDescription + ",";
 
                 ArrayList<SerializableNodeInfo> children = featurePack.childNodes;
 
                 for (SerializableNodeInfo node : children) {
                     line += node.contentDescription + ",";
-                    line += node.text;
+                    line += node.text + ",";
                 }
-
-                */
-
-                
 
                 String[] entries = line.split(",");
                 writer.writeNext(entries);

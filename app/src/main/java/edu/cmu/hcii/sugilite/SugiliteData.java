@@ -39,11 +39,24 @@ public class SugiliteData extends Application {
     //used to store the current active script
     private SugiliteStartingBlock scriptHead, trackingHead;
     private SugiliteBlock currentScriptBlock, currentTrackingBlock;
+
+    //the queue used for execution. the system should be in the execution mode whenever the queue is non-empty
     private Queue<SugiliteBlock> instructionQueue = new ArrayDeque<>();
+    //this queue is used for storing the content of instruction queue for pausing
+    public Queue<SugiliteBlock> storedInstructionQueueForPause = new ArrayDeque<>();
+
     public Map<String, Variable> stringVariableMap = new HashMap<>();
     public Set<String> registeredBroadcastingListener = new HashSet<>();
     public SugiliteBlock afterExecutionOperation = null;
+
+
+    //caches for file IO through the SugiliteScriptFileDao
+    public Map<String, SugiliteStartingBlock> sugiliteFileScriptDaoSavingCache = new HashMap<>();
+    public Map<String, SugiliteStartingBlock> sugiliteFileScriptDaoReadingCache = new HashMap<>();
+
+
     private Gson gson = new Gson();
+
     //true if the current recording script is initiated externally
     public boolean initiatedExternally  = false;
     public SugiliteCommunicationController communicationController;
@@ -54,10 +67,24 @@ public class SugiliteData extends Application {
     private boolean isCrucialStepPaused = false;
     private Queue<SugiliteBlock> resumeQueue = null;
 
+    //used to manage the recording popup, so the later ones won't cover the eariler ones.
     public Queue<AbstractSugiliteDialog> recordingPopupDialogQueue = new ArrayDeque<>();
     public boolean hasRecordingPopupActive = false;
+
     public List<AccessibilityNodeInfo> elementsWithTextLabels = new ArrayList<>();
 
+    private int currentSystemState = DEFAULT_STATE;
+
+
+
+    //used to indicate the state of the sugilite system
+    public static final int DEFAULT_STATE = 0, RECORDING_STATE = 1, RECORDING_FOR_ERROR_HANDLING_STATE = 2, EXECUTION_STATE = 3, REGULAR_DEBUG_STATE = 4, PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE = 6, PAUSED_FOR_ERROR_HANDLING_STATE = 7, PAUSED_FOR_CRUCIAL_STEP_STATE = 8, PAUSED_FOR_BREAKPOINT_STATE = 9, PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE = 10;
+    public int getCurrentSystemState(){
+        return currentSystemState;
+    }
+    public void setCurrentSystemState(int systemState){
+        this.currentSystemState = systemState;
+    }
 
     public SugiliteStartingBlock getScriptHead(){
         return scriptHead;
@@ -95,7 +122,7 @@ public class SugiliteData extends Application {
         this.trackingName = trackingName;
     }
 
-    public void runScript(SugiliteStartingBlock startingBlock, SugiliteBlock afterExecutionOperation){
+    public void runScript(SugiliteStartingBlock startingBlock, SugiliteBlock afterExecutionOperation, int state){
         startRecordingWhenFinishExecuting = false;
         this.afterExecutionOperation = afterExecutionOperation;
         this.instructionQueue.clear();
@@ -104,10 +131,13 @@ public class SugiliteData extends Application {
         errorHandler.reportSuccess(Calendar.getInstance().getTimeInMillis());
         List<SugiliteBlock> blocks = traverseBlock(startingBlock);
         addInstruction(startingBlock);
+
+        //set the system state to the execution state
+        setCurrentSystemState(state);
     }
 
-    public void runScript(SugiliteStartingBlock startingBlock, boolean isForResuming){
-        runScript(startingBlock, null);
+    public void runScript(SugiliteStartingBlock startingBlock, boolean isForResuming, int state){
+        runScript(startingBlock, null, state);
         startRecordingWhenFinishExecuting = isForResuming;
     }
 
@@ -144,6 +174,7 @@ public class SugiliteData extends Application {
                 instructionQueue.add(afterExecutionOperation);
                 afterExecutionOperation = null;
             }
+            setCurrentSystemState(DEFAULT_STATE);
             return;
         }
         instructionQueue.add(block);
@@ -173,6 +204,7 @@ public class SugiliteData extends Application {
                     SharedPreferences.Editor prefEditor = sharedPreferences.edit();
                     prefEditor.putBoolean("recording_in_process", true);
                     prefEditor.commit();
+                    setCurrentSystemState(RECORDING_STATE);
                 }
             }, 1500);
         }
@@ -255,6 +287,33 @@ public class SugiliteData extends Application {
                 e.printStackTrace();
             }
         }
+    }
+
+    public static String getStringforState(int state){
+        switch (state){
+            case DEFAULT_STATE:
+                return "DEFAULT_STATE";
+            case RECORDING_STATE:
+                return "RECORDING_STATE";
+            case RECORDING_FOR_ERROR_HANDLING_STATE:
+                return "RECORDING_FOR_ERROR_HANDLING_STATE";
+            case EXECUTION_STATE:
+                return "EXECUTION_STATE";
+            case REGULAR_DEBUG_STATE:
+                return "REGULAR_DEBUG_STATE";
+            case PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE:
+                return "PAUSED_FOR_DUCK_MENU_IN_REGULAR_EXECUTION_STATE";
+            case PAUSED_FOR_ERROR_HANDLING_STATE:
+                return "PAUSED_FOR_ERROR_HANDLING_STATE";
+            case PAUSED_FOR_CRUCIAL_STEP_STATE:
+                return "PAUSED_FOR_CRUCIAL_STEP_STATE";
+            case PAUSED_FOR_BREAKPOINT_STATE:
+                return "PAUSED_FOR_BREAKPOINT_STATE";
+            case PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE:
+                return "PAUSED_FOR_DUCK_MENU_IN_DEBUG_MODE";
+        }
+        return "";
+
     }
 
 

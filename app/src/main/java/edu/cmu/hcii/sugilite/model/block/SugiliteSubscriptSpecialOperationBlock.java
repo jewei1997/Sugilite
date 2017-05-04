@@ -9,6 +9,7 @@ import java.util.Map;
 
 import edu.cmu.hcii.sugilite.SugiliteData;
 import edu.cmu.hcii.sugilite.dao.SugiliteScriptDao;
+import edu.cmu.hcii.sugilite.dao.SugiliteScriptSQLDao;
 import edu.cmu.hcii.sugilite.model.variable.Variable;
 import edu.cmu.hcii.sugilite.ui.dialog.VariableSetValueDialog;
 
@@ -34,7 +35,7 @@ public class SugiliteSubscriptSpecialOperationBlock extends SugiliteSpecialOpera
 
     public void setSubscriptName (String subscriptName){
         this.subscriptName = subscriptName;
-        this.setDescription("Run subscript " + subscriptName);
+        this.setDescription("Run subscript: " + subscriptName);
     }
 
     public String getSubscriptName (){
@@ -51,7 +52,7 @@ public class SugiliteSubscriptSpecialOperationBlock extends SugiliteSpecialOpera
             Runnable myRunnable = new Runnable() {
                 @Override
                 public void run() {
-                    VariableSetValueDialog variableSetValueDialog = new VariableSetValueDialog(finalContext, inflater, sugiliteData, script, sharedPreferences);
+                    VariableSetValueDialog variableSetValueDialog = new VariableSetValueDialog(finalContext, inflater, sugiliteData, script, sharedPreferences, sugiliteData.getCurrentSystemState());
                     if (script.variableNameDefaultValueMap.size() > 0) {
                         //has variable
                         sugiliteData.stringVariableMap.putAll(script.variableNameDefaultValueMap);
